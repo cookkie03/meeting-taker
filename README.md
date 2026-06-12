@@ -159,7 +159,77 @@ Switch models with `--model` flag or in the app's model picker.
 | `csv` | Spreadsheet-compatible |
 | `rttm` | Rich Transcription Time Marked (diarization) |
 
-## Architecture
+## Auto-Detect Calls
+
+MeetingTaker can **automatically detect when you're in a call** and optionally start/stop recording. No manual intervention needed.
+
+### How It Works
+
+The `CallDetectionEngine` uses multiple signals to detect active meetings:
+
+| Signal | What it checks | Confidence |
+|--------|---------------|------------|
+| **Process Detection** | Known meeting apps running (`CptHost` for Zoom, `FaceTime`, `Tuple`, `Webex`, etc.) | High |
+| **CoreAudio Per-Process Mic Check** | Which specific PIDs are capturing audio input (macOS 14+) | High |
+| **Browser Tab Detection** | Chrome/Safari tabs with meeting URLs (`meet.google.com`, `teams.microsoft.com`, `zoom.us/j/`, etc.) | Medium |
+| **Mic Activity** | Any process using the microphone (catches unknown apps) | Low |
+
+### Supported Apps
+
+**Native apps:**
+- Zoom (`CptHost` process)
+- FaceTime
+- Microsoft Teams
+- Slack Huddle
+- Webex
+- Discord
+- Around
+- Tuple
+- Loom
+
+**Browser-based:**
+- Google Meet (Chrome/Safari)
+- Microsoft Teams Web (Chrome/Safari)
+- Zoom Web (Chrome/Safari)
+- Slack Huddle Web (Chrome/Safari)
+
+### Auto-Record
+
+Enable **Auto-Record** in the app or CLI to automatically:
+
+1. **Detect** when a call starts (5s warmup to avoid false positives)
+2. **Start recording** automatically
+3. **Detect** when the call ends (5s grace period)
+4. **Stop recording** and transcribe
+
+```
+State machine:
+  idle ──(mic active 5s)──► warming ──(confirmed)──► recording
+                                                              │
+  idle ◄──(mic idle 5s)─── cooling ◄──(mic stopped)─────────┘
+```
+
+### CLI Usage
+
+```bash
+# Watch for calls and auto-transcribe
+mtaker watch
+
+# Watch with specific source
+mtaker watch --source system-audio
+
+# Watch with diarization
+mtaker watch --diarize
+```
+
+### Privacy
+
+Call detection is **100% local**:
+- No network calls to detect apps
+- No screen content captured (audio only)
+- No data about your calls leaves the Mac
+- Process names checked locally via `NSRunningApplication`
+- Browser tabs checked via local AppleScript (no browser extensions)
 
 ```
 MeetingTaker/

@@ -11,7 +11,7 @@ struct MeetingTakerCLI: AsyncParsableCommand {
         commandName: "mtaker",
         abstract: "Professional-grade, on-device transcription for macOS",
         version: "1.0.0",
-        subcommands: [Transcribe.self, Diarize.self, Serve.self, Models.self],
+        subcommands: [Transcribe.self, Diarize.self, Serve.self, Watch.self, Models.self],
         defaultSubcommand: Transcribe.self
     )
 }
@@ -232,5 +232,97 @@ struct Models: AsyncParsableCommand {
             print("    Size: \(tier.size)")
             print("")
         }
+    }
+}
+
+// MARK: - Watch Command
+
+struct Watch: AsyncParsableCommand {
+    static var configuration = CommandConfiguration(
+        commandName: "watch",
+        abstract: "Watch for calls and auto-transcribe when detected"
+    )
+
+    @Option(name: .shortAndLong, help: "Audio source (microphone, system-audio, both)")
+    var source: String = "both"
+
+    @Option(name: .shortAndLong, help: "Model to use")
+    var model: String = TranscriptionEngine.defaultModel
+
+    @Option(name: .shortAndLong, help: "Language code (e.g. en, it, auto)")
+    var language: String?
+
+    @Option(name: .shortAndLong, help: "Output directory for transcripts")
+    var outputDir: String = "~/Documents/MeetingTaker"
+
+    @Flag(name: .shortAndLong, help: "Enable speaker diarization")
+    var diarize: Bool = false
+
+    @Flag(name: .shortAndLong, help: "Verbose output")
+    var verbose: Bool = false
+
+    func run() async throws {
+        let audioSource: AudioSource
+        switch source {
+        case "microphone", "mic":  audioSource = .microphone
+        case "system", "system-audio": audioSource = .systemAudio
+        case "both":               audioSource = .both
+        default:
+            print("Unknown source: \(source). Use: microphone, system-audio, both")
+            return
+        }
+
+        let outputURL = URL(fileURLWithPath: (outputDir as NSString).expandingTildeInPath)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+
+        print("MeetingTaker Call Watcher")
+        print("  Source:  \(audioSource.displayName)")
+        print("  Model:   \(model)")
+        print("  Output:  \(outputURL.path)")
+        print("  Diarize: \(diarize ? "yes" : "no")")
+        print("")
+        print("Watching for calls... (Ctrl+C to stop)")
+        print("")
+
+        let detectionEngine = CallDetectionEngine()
+        let config = CallWatcher.Configuration(
+            pollInterval: 2.0,
+            warmupDuration: 5.0,
+            graceDuration: 5.0,
+            minimumRecordingDuration: 30.0,
+            autoStartRecording: true,
+            autoStopRecording: true
+        )
+
+        let watcher = CallWatcher(config: config)
+
+        // Keep running until cancelled
+        let signalSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+        signalSource.setEventHandler {
+            print("\nStopping watcher...")
+            Task { await watcher.stopWatching() }
+            exit(0)
+        }
+        signal(SIGINT, SIG_IGN)
+        signalSource.resume()
+
+        await watcher.startWatching(
+            onCallDetected: { call in
+                print("[\(timestamp())] 📞 Detected: \(call.appName) (confidence: \(call.confidence))")
+            },
+            onCallEnded: { call in
+                print("[\(timestamp())] 📴 Call ended: \(call.appName)")
+                print("[\(timestamp())] 💾 Transcribing and saving...")
+            }
+        )
+
+        // Keep alive
+        try await Task.sleep(for: .seconds(999999))
+    }
+
+    private func timestamp() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter.string(from: Date())
     }
 }
