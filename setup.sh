@@ -147,7 +147,8 @@ if [[ "$SKIP_MODELS" == false && "$BUILD_ONLY" == false ]]; then
 
     log_info "Downloading model: $MODEL (~626MB)..."
     cd "$WHISPER_DIR"
-    git lfs pull --include="openai_whisper-$MODEL/*" --quiet
+    git lfs fetch --include="openai_whisper-$MODEL/*" -q 2>/dev/null
+    git lfs checkout 2>/dev/null
     log_ok "WhisperKit model downloaded: $MODEL"
 
     # SpeakerKit models
@@ -156,8 +157,8 @@ if [[ "$SKIP_MODELS" == false && "$BUILD_ONLY" == false ]]; then
     if [[ -d "$SPEAKER_DIR/.git" ]]; then
         log_info "Updating existing SpeakerKit repository..."
         cd "$SPEAKER_DIR"
-        GIT_LFS_SKIP_SMUDGE=1 git fetch --all --quiet
-        git reset --hard origin/main --quiet
+        GIT_LFS_SKIP_SMUDGE=1 git fetch --all -q
+        git reset --hard origin/main -q
     else
         log_info "Cloning SpeakerKit repository..."
         GIT_LFS_SKIP_SMUDGE=1 git clone "https://huggingface.co/$SPEAKER_MODEL_REPO" "$SPEAKER_DIR"
@@ -165,9 +166,10 @@ if [[ "$SKIP_MODELS" == false && "$BUILD_ONLY" == false ]]; then
 
     log_info "Downloading SpeakerKit models..."
     cd "$SPEAKER_DIR"
-    git lfs pull --include="speaker_segmenter/**" --quiet
-    git lfs pull --include="speaker_embedder/**" --quiet
-    git lfs pull --include="speaker_clusterer/pyannote-v4/**" --quiet
+    git lfs fetch --include="speaker_segmenter/**" -q 2>/dev/null
+    git lfs fetch --include="speaker_embedder/**" -q 2>/dev/null
+    git lfs fetch --include="speaker_clusterer/pyannote-v4/**" -q 2>/dev/null
+    git lfs checkout 2>/dev/null
     log_ok "SpeakerKit models downloaded"
 
     # Verify models
