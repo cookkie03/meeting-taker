@@ -1,0 +1,28 @@
+# Build
+.build/
+*.o
+*.dSYM/
+
+# Xcode
+xcuserdata/
+*.xcworkspace
+DerivedData/
+*.xcodeproj
+
+# Models (large files)
+Models/
+*.mlmodelc/
+*.mlpackage/
+
+# macOS
+.DS_Store
+*.swp
+*__
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary
+*.wav
+*.tmp
