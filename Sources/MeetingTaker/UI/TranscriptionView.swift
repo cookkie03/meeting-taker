@@ -7,79 +7,90 @@ struct TranscriptionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Top toolbar
             toolbar
-
             Divider()
 
-            // Main content
             if let result = viewModel.currentResult {
                 TranscriptionResultView(result: result)
             } else {
                 emptyState
             }
         }
-        .onAppear {
-            viewModel.setup(appState: appState)
-        }
+        .onAppear { viewModel.setup(appState: appState) }
     }
 
     // MARK: - Toolbar
 
     private var toolbar: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 12) {
+            // Audio source picker
+            Picker("Source", selection: $viewModel.audioSource) {
+                ForEach(AudioSource.allCases) { source in
+                    Label(source.displayName, systemImage: source.icon)
+                        .tag(source)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 320)
+
+            Divider().frame(height: 20)
+
             // Model picker
             Picker("Model", selection: $appState.selectedModel) {
                 ForEach(TranscriptionEngine.modelTiers, id: \.name) { tier in
-                    Text("\(tier.name) (\(tier.size))")
-                        .tag(tier.name)
+                    Text("\(tier.name) (\(tier.size))").tag(tier.name)
                 }
             }
-            .frame(width: 250)
+            .frame(width: 220)
 
-            // Language picker
+            // Language
             Picker("Language", selection: $appState.selectedLanguage) {
-                Text("Auto-detect").tag("auto")
-                Text("English").tag("en")
-                Text("Italian").tag("it")
-                Text("Spanish").tag("es")
-                Text("French").tag("fr")
-                Text("German").tag("de")
-                Text("Portuguese").tag("pt")
-                Text("Japanese").tag("ja")
-                Text("Chinese").tag("zh")
-                Text("Korean").tag("ko")
-                Text("Russian").tag("ru")
-                Text("Arabic").tag("ar")
-                Text("Hindi").tag("hi")
+                Text("Auto").tag("auto")
+                Text("🇬🇧 EN").tag("en")
+                Text("🇮🇹 IT").tag("it")
+                Text("🇪🇸 ES").tag("es")
+                Text("🇫🇷 FR").tag("fr")
+                Text("🇩🇪 DE").tag("de")
+                Text("🇵🇹 PT").tag("pt")
+                Text("🇯🇵 JP").tag("ja")
+                Text("🇨🇳 ZH").tag("zh")
+                Text("🇰🇷 KO").tag("ko")
+                Text("🇷🇺 RU").tag("ru")
+                Text("🇸🇦 AR").tag("ar")
+                Text("🇮🇳 HI").tag("hi")
             }
-            .frame(width: 140)
+            .frame(width: 120)
 
             Toggle("Speaker ID", isOn: $appState.enableDiarization)
                 .toggleStyle(.checkbox)
 
             Spacer()
 
-            // Record / Stop button
+            // Audio level indicator
+            if viewModel.isRecording {
+                AudioLevelView(level: viewModel.audioLevel)
+                    .frame(width: 60, height: 24)
+            }
+
+            // Record / Stop
             Button(action: {
-                if appState.isRecording {
+                if viewModel.isRecording {
                     viewModel.stopRecording()
                 } else {
                     viewModel.startRecording()
                 }
             }) {
                 HStack {
-                    Image(systemName: appState.isRecording ? "stop.circle.fill" : "record.circle.fill")
+                    Image(systemName: viewModel.isRecording ? "stop.circle.fill" : "record.circle.fill")
                         .font(.title2)
-                    Text(appState.isRecording ? "Stop" : "Record")
+                    Text(viewModel.isRecording ? "Stop" : "Record")
                         .fontWeight(.semibold)
                 }
-                .foregroundStyle(appState.isRecording ? .red : .accent)
+                .foregroundStyle(viewModel.isRecording ? .red : .accent)
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
 
-            // Transcribe file button
             Button("Open File...") {
                 viewModel.openFile()
             }
@@ -96,7 +107,7 @@ struct TranscriptionView: View {
             Spacer()
 
             Image(systemName: "waveform.circle.fill")
-                .font(.system(size: 80))
+                .font(.system(size: 72))
                 .foregroundStyle(.quaternary)
 
             VStack(spacing: 8) {
@@ -104,16 +115,34 @@ struct TranscriptionView: View {
                     .font(.title2)
                     .fontWeight(.semibold)
 
-                Text("Click Record to capture from microphone, or Open File to transcribe an audio file.")
+                Text("Choose your audio source, then click Record.\nOr open an audio file to transcribe.")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
 
+            VStack(spacing: 8) {
+                Text("Audio Sources")
+                    .font(.headline)
+                HStack(spacing: 20) {
+                    ForEach(AudioSource.allCases) { source in
+                        VStack(spacing: 4) {
+                            Image(systemName: source.icon)
+                                .font(.title)
+                            Text(source.displayName)
+                                .font(.caption)
+                        }
+                        .foregroundStyle(viewModel.audioSource == source ? .accent : .secondary)
+                    }
+                }
+            }
+            .padding()
+            .background(.quaternary.opacity(0.2))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+
             if appState.isTranscribing {
                 VStack(spacing: 8) {
-                    ProgressView()
-                        .scaleEffect(1.2)
+                    ProgressView().scaleEffect(1.2)
                     Text("Transcribing...")
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -122,7 +151,27 @@ struct TranscriptionView: View {
 
             Spacer()
         }
-        .frame(maxWidth: 400)
+        .frame(maxWidth: 500)
+    }
+}
+
+// MARK: - Audio Level View
+
+struct AudioLevelView: View {
+    let level: Float
+
+    var body: some View {
+        GeometryReader { geo in
+            HStack(alignment: .bottom, spacing: 2) {
+                ForEach(0..<10, id: \.self) { i in
+                    let threshold = Float(i + 1) / 10.0
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(level >= threshold ? .green : .quaternary.opacity(0.4))
+                        .frame(height: geo.size.height * CGFloat(threshold))
+                }
+            }
+        }
+        .animation(.easeOut(duration: 0.1), value: level)
     }
 }
 
@@ -130,12 +179,11 @@ struct TranscriptionView: View {
 
 struct TranscriptionResultView: View {
     let result: TranscriptionResult
-    @State private var selectedFormat: ExportFormat = .txt
     @State private var showExport = false
 
     var body: some View {
         VStack(spacing: 0) {
-            // Result header
+            // Header
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(result.fileName ?? "Live Recording")
@@ -152,12 +200,9 @@ struct TranscriptionResultView: View {
 
                 Spacer()
 
-                // Export button
                 Menu {
                     ForEach(ExportFormat.allCases, id: \.self) { format in
-                        Button(format.displayName) {
-                            exportAs(format)
-                        }
+                        Button(format.displayName) { exportAs(format) }
                     }
                 } label: {
                     Label("Export", systemImage: "square.and.arrow.up")
@@ -169,7 +214,7 @@ struct TranscriptionResultView: View {
 
             Divider()
 
-            // Segments list
+            // Segments
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(result.segments) { segment in
@@ -188,19 +233,15 @@ struct TranscriptionResultView: View {
 
         if panel.runModal() == .OK, let url = panel.url {
             let exporter = ExportEngine()
-            do {
-                try exporter.export(result, to: format, at: url)
-            } catch {
-                // Handle error
-            }
+            try? exporter.export(result, to: format, at: url)
         }
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {
-        let hours = Int(duration) / 3600
-        let minutes = (Int(duration) % 3600) / 60
-        let seconds = Int(duration) % 60
-        return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+        let h = Int(duration) / 3600
+        let m = (Int(duration) % 3600) / 60
+        let s = Int(duration) % 60
+        return String(format: "%02d:%02d:%02d", h, m, s)
     }
 }
 
@@ -211,7 +252,6 @@ struct SegmentRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            // Time
             VStack(alignment: .trailing, spacing: 2) {
                 Text(formatTime(segment.startTime))
                     .font(.caption.monospacedDigit())
@@ -222,7 +262,6 @@ struct SegmentRow: View {
             }
             .frame(width: 80, alignment: .trailing)
 
-            // Speaker badge
             if let speaker = segment.speaker {
                 Text(speaker)
                     .font(.caption)
@@ -234,7 +273,6 @@ struct SegmentRow: View {
                     .clipShape(Capsule())
             }
 
-            // Text
             Text(segment.text)
                 .font(.body)
                 .textSelection(.enabled)
@@ -245,14 +283,13 @@ struct SegmentRow: View {
     }
 
     private func formatTime(_ time: TimeInterval) -> String {
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%02d:%02d", minutes, seconds)
+        let m = Int(time) / 60
+        let s = Int(time) % 60
+        return String(format: "%02d:%02d", m, s)
     }
 
     private func speakerColor(_ speaker: String) -> Color {
         let colors: [Color] = [.blue, .green, .orange, .purple, .pink, .teal, .indigo, .cyan]
-        let hash = abs(speaker.hashValue)
-        return colors[hash % colors.count]
+        return colors[abs(speaker.hashValue) % colors.count]
     }
 }

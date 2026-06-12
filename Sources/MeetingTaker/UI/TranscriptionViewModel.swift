@@ -10,11 +10,13 @@ class TranscriptionViewModel: ObservableObject {
     @Published var isRecording = false
     @Published var isTranscribing = false
     @Published var recordingTime: TimeInterval = 0
+    @Published var audioSource: AudioSource = .microphone
+    @Published var audioLevel: Float = 0.0
 
     private var appState: AppState?
     private var transcriptionEngine: TranscriptionEngine?
     private var diarizationEngine: DiarizationEngine?
-    private var audioRecorder: AudioRecorder?
+    private var audioCaptureManager: AudioCaptureManager?
     private var audioFileWriter: AudioFileWriter?
     private var recordingURL: URL?
     private var recordingTimer: Timer?
@@ -23,7 +25,7 @@ class TranscriptionViewModel: ObservableObject {
         self.appState = appState
         self.transcriptionEngine = TranscriptionEngine(model: appState.selectedModel)
         self.diarizationEngine = DiarizationEngine()
-        self.audioRecorder = AudioRecorder.shared
+        self.audioCaptureManager = AudioCaptureManager.shared
         self.audioFileWriter = AudioFileWriter()
     }
 
@@ -47,10 +49,12 @@ class TranscriptionViewModel: ObservableObject {
                     try await audioFileWriter?.startWriting(to: url)
                 }
 
-                // Start recording
-                try await audioRecorder?.startRecording { [weak self] buffer in
+                // Start capture from selected source
+                try await audioCaptureManager?.startCapture(source: audioSource) { [weak self] buffer in
                     Task { @MainActor in
                         try? await self?.audioFileWriter?.write(buffer)
+                        // Update audio level for UI
+                        self?.updateAudioLevel(buffer)
                     }
                 }
 
@@ -73,13 +77,14 @@ class TranscriptionViewModel: ObservableObject {
         guard let appState else { return }
 
         Task {
-            await audioRecorder?.stopRecording()
+            await audioCaptureManager?.stopCapture()
             await audioFileWriter?.stopWriting()
 
             recordingTimer?.invalidate()
             recordingTimer = nil
             isRecording = false
             appState.isRecording = false
+            audioLevel = 0
 
             // Transcribe the recorded file
             if let url = recordingURL {
@@ -134,7 +139,6 @@ class TranscriptionViewModel: ObservableObject {
                 )
 
                 if let diarization = diarizationSegments {
-                    // Merge diarization with transcription
                     result = mergeDiarization(result, diarization: diarization)
                 }
             }
@@ -150,13 +154,24 @@ class TranscriptionViewModel: ObservableObject {
         appState.isTranscribing = false
     }
 
+    // MARK: - Audio Level
+
+    private func updateAudioLevel(_ buffer: AVAudioPCMBuffer) {
+        guard let channelData = buffer.floatChannelData?[0] else { return }
+        let frameLength = Int(buffer.frameLength)
+        var sum: Float = 0
+        for i in 0..<frameLength {
+            sum += abs(channelData[i])
+        }
+        let avg = sum / Float(frameLength)
+        audioLevel = min(1.0, avg * 10) // Normalize to 0-1
+    }
+
     // MARK: - Diarization Merge
 
     private func mergeDiarization(_ result: TranscriptionResult, diarization: [DiarizationSegment]) -> TranscriptionResult {
         let updatedSegments = result.segments.map { segment -> TranscriptionSegment in
-            // Find overlapping diarization segment
             let matchingSpeaker = diarization.first { diarSegment in
-                // Check for overlap
                 segment.startTime < diarSegment.endTime && segment.endTime > diarSegment.startTime
             }
 

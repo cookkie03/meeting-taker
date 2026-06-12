@@ -244,7 +244,9 @@ cat > "$CONTENTS_DIR/Info.plist" << 'EOF'
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>MeetingTaker needs microphone access to transcribe audio in real-time.</string>
+    <string>MeetingTaker needs microphone access to transcribe your voice in real-time.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>MeetingTaker uses ScreenCaptureKit to capture system audio (Zoom, Meet, etc.). Only audio is captured, never screen content.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>
