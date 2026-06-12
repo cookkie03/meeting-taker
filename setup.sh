@@ -6,13 +6,12 @@ set -euo pipefail
 # ║  Professional-grade, on-device transcription for macOS      ║
 # ╚══════════════════════════════════════════════════════════════╝
 
-# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 BOLD='\033[1m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODELS_DIR="$REPO_DIR/Models"
@@ -29,53 +28,45 @@ log_step()  { echo -e "\n${BOLD}━━━ $1 ━━━${NC}\n"; }
 
 log_step "Checking prerequisites"
 
-# Check macOS
 if [[ "$(uname)" != "Darwin" ]]; then
     log_error "MeetingTaker requires macOS"
     exit 1
 fi
-log_ok "macOS detected: $(sw_vers -productVersion)"
+log_ok "macOS: $(sw_vers -productVersion)"
 
-# Check Apple Silicon
 if [[ "$(uname -m)" != "arm64" ]]; then
-    log_warn "MeetingTaker is optimized for Apple Silicon. Intel Macs may be slower."
+    log_warn "Intel Mac detected. Apple Silicon recommended for best performance."
 else
     log_ok "Apple Silicon detected"
 fi
 
-# Check Xcode
 if ! command -v xcodebuild &>/dev/null; then
-    log_error "Xcode is required. Install from the App Store, then run:"
+    log_error "Xcode required. Install from App Store, then run:"
     echo "  xcode-select --install"
     echo "  sudo xcodebuild -license accept"
     exit 1
 fi
 log_ok "Xcode: $(xcodebuild -version | head -1)"
 
-# Check Swift
 if ! command -v swift &>/dev/null; then
-    log_error "Swift is required. Install Xcode Command Line Tools:"
-    echo "  xcode-select --install"
+    log_error "Swift required. Run: xcode-select --install"
     exit 1
 fi
 log_ok "Swift: $(swift --version | head -1)"
 
-# Check Homebrew
 if ! command -v brew &>/dev/null; then
     log_info "Installing Homebrew..."
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
 log_ok "Homebrew installed"
 
-# Check git-lfs
 if ! command -v git-lfs &>/dev/null; then
     log_info "Installing git-lfs..."
     brew install git-lfs
 fi
-git lfs install --quiet 2>/dev/null || true
+git lfs install 2>/dev/null || true
 log_ok "git-lfs installed"
 
-# Check huggingface-cli
 if ! command -v huggingface-cli &>/dev/null; then
     log_info "Installing huggingface-cli..."
     brew install huggingface-cli
@@ -90,38 +81,21 @@ BUILD_ONLY=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --model)
-            MODEL="$2"
-            shift 2
-            ;;
-        --skip-models)
-            SKIP_MODELS=true
-            shift
-            ;;
-        --build-only)
-            BUILD_ONLY=true
-            shift
-            ;;
+        --model)       MODEL="$2"; shift 2 ;;
+        --skip-models) SKIP_MODELS=true; shift ;;
+        --build-only)  BUILD_ONLY=true; shift ;;
         --help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --model MODEL       Model to download (default: large-v3-v20240930_626MB)"
-            echo "  --skip-models       Skip model download (build only)"
-            echo "  --build-only        Build without downloading models"
+            echo "  --model MODEL       Model (default: large-v3-v20240930_626MB)"
+            echo "  --skip-models       Skip model download"
+            echo "  --build-only        Build only, skip everything else"
             echo "  --help              Show this help"
             echo ""
-            echo "Available models:"
-            echo "  tiny                ~75MB   Fastest, lowest accuracy"
-            echo "  base                ~140MB  Good for debugging"
-            echo "  small               ~250MB  Balanced speed/accuracy"
-            echo "  large-v3-v20240930_626MB  ~626MB  Recommended (best accuracy)"
-            exit 0
-            ;;
-        *)
-            log_error "Unknown option: $1"
-            exit 1
-            ;;
+            echo "Models: tiny, base, small, large-v3-v20240930_626MB"
+            exit 0 ;;
+        *) log_error "Unknown option: $1"; exit 1 ;;
     esac
 done
 
@@ -132,53 +106,53 @@ if [[ "$SKIP_MODELS" == false && "$BUILD_ONLY" == false ]]; then
 
     mkdir -p "$MODELS_DIR"
 
-    # WhisperKit models
+    # WhisperKit model repo
     log_info "Setting up WhisperKit model repository..."
     WHISPER_DIR="$MODELS_DIR/whisperkit-coreml"
     if [[ -d "$WHISPER_DIR/.git" ]]; then
-        log_info "Updating existing model repository..."
+        log_info "Updating existing repository..."
         cd "$WHISPER_DIR"
-        GIT_LFS_SKIP_SMUDGE=1 git fetch --all --quiet
-        git reset --hard origin/main --quiet
+        GIT_LFS_SKIP_SMUDGE=1 git fetch --all 2>/dev/null
+        git reset --hard origin/main 2>/dev/null
     else
-        log_info "Cloning model repository (this may take a while)..."
+        log_info "Cloning from HuggingFace (this may take a while)..."
         GIT_LFS_SKIP_SMUDGE=1 git clone "https://huggingface.co/$WHISPER_MODEL_REPO" "$WHISPER_DIR"
     fi
 
     log_info "Downloading model: $MODEL (~626MB)..."
     cd "$WHISPER_DIR"
-    git lfs fetch --include="openai_whisper-$MODEL/*" -q 2>/dev/null
+    git lfs fetch --include="openai_whisper-$MODEL/*" 2>/dev/null
     git lfs checkout 2>/dev/null
-    log_ok "WhisperKit model downloaded: $MODEL"
+    log_ok "WhisperKit model ready: $MODEL"
 
-    # SpeakerKit models
+    # SpeakerKit model repo
     log_info "Setting up SpeakerKit model repository..."
     SPEAKER_DIR="$MODELS_DIR/speakerkit-coreml"
     if [[ -d "$SPEAKER_DIR/.git" ]]; then
-        log_info "Updating existing SpeakerKit repository..."
+        log_info "Updating existing repository..."
         cd "$SPEAKER_DIR"
-        GIT_LFS_SKIP_SMUDGE=1 git fetch --all -q
-        git reset --hard origin/main -q
+        GIT_LFS_SKIP_SMUDGE=1 git fetch --all 2>/dev/null
+        git reset --hard origin/main 2>/dev/null
     else
-        log_info "Cloning SpeakerKit repository..."
+        log_info "Cloning from HuggingFace..."
         GIT_LFS_SKIP_SMUDGE=1 git clone "https://huggingface.co/$SPEAKER_MODEL_REPO" "$SPEAKER_DIR"
     fi
 
     log_info "Downloading SpeakerKit models..."
     cd "$SPEAKER_DIR"
-    git lfs fetch --include="speaker_segmenter/**" -q 2>/dev/null
-    git lfs fetch --include="speaker_embedder/**" -q 2>/dev/null
-    git lfs fetch --include="speaker_clusterer/pyannote-v4/**" -q 2>/dev/null
+    git lfs fetch --include="speaker_segmenter/**" 2>/dev/null
+    git lfs fetch --include="speaker_embedder/**" 2>/dev/null
+    git lfs fetch --include="speaker_clusterer/pyannote-v4/**" 2>/dev/null
     git lfs checkout 2>/dev/null
-    log_ok "SpeakerKit models downloaded"
+    log_ok "SpeakerKit models ready"
 
-    # Verify models
-    log_info "Verifying models..."
+    # Verify
     MODEL_PATH="$WHISPER_DIR/openai_whisper-$MODEL"
     if [[ -d "$MODEL_PATH" ]]; then
         log_ok "Model verified: $MODEL_PATH"
     else
         log_error "Model not found at: $MODEL_PATH"
+        log_error "Try running: cd $WHISPER_DIR && git lfs pull --include='openai_whisper-$MODEL/*'"
         exit 1
     fi
 else
@@ -191,14 +165,14 @@ log_step "Building MeetingTaker"
 
 cd "$REPO_DIR"
 
-log_info "Resolving dependencies..."
-swift package resolve
+log_info "Resolving Swift Package dependencies..."
+swift package resolve 2>/dev/null
 
 log_info "Building MeetingTaker app (release)..."
-swift build -c release --product meeting-taker
+swift build -c release --product meeting-taker 2>/dev/null
 
 log_info "Building mtaker CLI (release)..."
-swift build -c release --product mtaker
+swift build -c release --product mtaker 2>/dev/null
 
 log_ok "Build complete"
 
@@ -206,7 +180,6 @@ log_ok "Build complete"
 
 log_step "Installing"
 
-# Create app bundle
 APP_DIR="$REPO_DIR/MeetingTaker.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
@@ -215,15 +188,12 @@ RESOURCES_DIR="$CONTENTS_DIR/Resources"
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
-# Copy binary
 cp "$REPO_DIR/.build/release/meeting-taker" "$MACOS_DIR/MeetingTaker"
 chmod +x "$MACOS_DIR/MeetingTaker"
 
-# Copy CLI
 cp "$REPO_DIR/.build/release/mtaker" "$MACOS_DIR/mtaker"
 chmod +x "$MACOS_DIR/mtaker"
 
-# Create Info.plist
 cat > "$CONTENTS_DIR/Info.plist" << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -255,10 +225,9 @@ cat > "$CONTENTS_DIR/Info.plist" << 'EOF'
 </plist>
 EOF
 
-# Install CLI to /usr/local/bin
 log_info "Installing mtaker CLI to /usr/local/bin..."
-sudo cp "$REPO_DIR/.build/release/mtaker" /usr/local/bin/mtaker
-sudo chmod +x /usr/local/bin/mtaker
+sudo cp "$REPO_DIR/.build/release/mtaker" /usr/local/bin/mtaker 2>/dev/null
+sudo chmod +x /usr/local/bin/mtaker 2>/dev/null
 
 log_ok "Installation complete"
 
@@ -266,7 +235,7 @@ log_ok "Installation complete"
 
 log_step "Setup Complete 🎉"
 
-echo -e "${BOLD}MeetingTaker is ready to use!${NC}"
+echo -e "${BOLD}MeetingTaker is ready!${NC}"
 echo ""
 echo "  📱 App:     open $APP_DIR"
 echo "  🖥  CLI:     mtaker --help"
@@ -275,14 +244,8 @@ echo ""
 echo "Quick start:"
 echo "  mtaker transcribe audio.wav                    # Transcribe a file"
 echo "  mtaker transcribe audio.wav --diarize          # With speaker ID"
-echo "  mtaker transcribe audio.wav -o output.txt      # Save to file"
-echo "  mtaker transcribe audio.wav -f srt             # Export as SRT"
-echo "  mtaker serve --port 50060                      # Start API server"
-echo "  mtaker models                                  # List available models"
+echo "  mtaker transcribe audio.wav -f srt -o subs.srt # Export SRT"
+echo "  mtaker watch --source both                     # Auto-detect calls"
+echo "  mtaker serve --port 50060                      # API server"
 echo ""
-echo "API server example:"
-echo "  curl -X POST http://localhost:50060/v1/audio/transcriptions \\"
-echo "    -F file=@audio.wav \\"
-echo "    -F model=$MODEL"
-echo ""
-echo -e "${GREEN}100% local. Zero external dependencies. Your data never leaves your machine.${NC}"
+echo -e "${GREEN}100% local. Zero external dependencies.${NC}"
