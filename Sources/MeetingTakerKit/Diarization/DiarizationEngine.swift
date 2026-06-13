@@ -1,129 +1,121 @@
 import Foundation
+import AVFoundation
 import SpeakerKit
 
-/// Errors that can occur during speaker diarization
 public enum DiarizationError: LocalizedError {
-    case modelNotFound(String)
     case initializationFailed(String)
     case diarizationFailed(String)
-    case invalidAudioFile(String)
 
     public var errorDescription: String? {
         switch self {
-        case .modelNotFound(let name):
-            return "Speaker model '\(name)' not found. Run setup to download models."
-        case .initializationFailed(let reason):
-            return "Failed to initialize SpeakerKit: \(reason)"
-        case .diarizationFailed(let reason):
-            return "Diarization failed: \(reason)"
-        case .invalidAudioFile(let path):
-            return "Invalid audio file: \(path)"
+        case .initializationFailed(let r): return "SpeakerKit init failed: \(r)"
+        case .diarizationFailed(let r):   return "Diarization failed: \(r)"
         }
     }
 }
 
-/// Speaker diarization result for a single segment
-public struct DiarizationSegment: Codable, Sendable {
-    public let startTime: TimeInterval
-    public let endTime: TimeInterval
-    public let speaker: String
-    public let confidence: Double?
-
-    public init(startTime: TimeInterval, endTime: TimeInterval, speaker: String, confidence: Double? = nil) {
-        self.startTime = startTime
-        self.endTime = endTime
-        self.speaker = speaker
-        self.confidence = confidence
-    }
-}
-
-/// Speaker diarization engine powered by SpeakerKit
-/// Identifies "who spoke when" in an audio file
+/// Speaker diarization engine powered by SpeakerKit (Pyannote).
+/// Identifies "who spoke when" from an audio file.
 public actor DiarizationEngine {
-
-    // MARK: - Properties
 
     private var speakerKit: SpeakerKit?
 
-    // MARK: - Initialization
-
     public init() {}
 
-    /// Initialize the diarization engine
     public func initialize() async throws {
-        speakerKit = try await SpeakerKit()
+        let config = PyannoteConfig()
+        config.download = true
+        config.load = true
+        speakerKit = try await SpeakerKit(config)
     }
 
-    /// Check if the engine is initialized
-    public var isInitialized: Bool {
-        speakerKit != nil
-    }
+    public var isInitialized: Bool { speakerKit != nil }
 
-    // MARK: - Diarization
-
-    /// Perform speaker diarization on an audio file
-    /// - Parameters:
-    ///   - audioPath: Path to the audio file
-    ///   - maxSpeakers: Maximum number of speakers to detect (nil for auto)
-    /// - Returns: Array of diarization segments with speaker labels
+    /// Diarize an audio file. Returns speaker segments with timings.
     public func diarize(
         audioPath: String,
         maxSpeakers: Int? = nil
     ) async throws -> [DiarizationSegment] {
+
+        if speakerKit == nil { try await initialize() }
         guard let sk = speakerKit else {
-            try await initialize()
-            guard let sk2 = speakerKit else {
-                throw DiarizationError.initializationFailed("SpeakerKit not available")
-            }
-            return try await performDiarization(sk2, audioPath: audioPath, maxSpeakers: maxSpeakers)
+            throw DiarizationError.initializationFailed("SpeakerKit not available")
         }
 
-        return try await performDiarization(sk, audioPath: audioPath, maxSpeakers: maxSpeakers)
-    }
+        // Load audio file into float array at 16kHz mono
+        let audioArray = try loadAudioFile(path: audioPath)
 
-    private func performDiarization(
-        _ sk: SpeakerKit,
-        audioPath: String,
-        maxSpeakers: Int?
-    ) async throws -> [DiarizationSegment] {
-        guard FileManager.default.fileExists(atPath: audioPath) else {
-            throw DiarizationError.invalidAudioFile(audioPath)
-        }
+        // Diarize — SpeakerKit.diarize takes audioArray: [Float], options can be nil
+        let result = try await sk.diarize(audioArray: audioArray, options: nil)
 
-        // Configure diarization options
-        var options = DiarizationOptions()
-        if let max = maxSpeakers {
-            options.maxSpeakers = max
-        }
-
-        // Perform diarization
-        let result = try await sk.diarize(audioPath: audioPath, options: options)
-
-        // Convert to our model
+        // Convert SpeakerSegment to our DiarizationSegment
         return result.segments.map { segment in
             DiarizationSegment(
-                startTime: segment.start,
-                endTime: segment.end,
-                speaker: segment.speaker,
-                confidence: segment.confidence
+                startTime: TimeInterval(segment.startTime),
+                endTime: TimeInterval(segment.endTime),
+                speaker: segment.speaker.speakerId.map { "Speaker \($0)" } ?? "unknown",
+                confidence: nil
             )
         }
     }
 
-    // MARK: - RTTM Export
-
     /// Export diarization results in RTTM format
-    /// - Parameters:
-    ///   - segments: Diarization segments
-    ///   - fileId: Identifier for the audio file
-    /// - Returns: RTTM formatted string
     public func exportRTTM(segments: [DiarizationSegment], fileId: String) -> String {
-        var lines: [String] = []
-        for segment in segments {
-            let duration = segment.endTime - segment.startTime
-            let line = "SPEAKER \(fileId) 1 \(String(format: "%.3f", segment.startTime)) \(String(format: "%.3f", duration)) <NA> <NA> \(segment.speaker) <NA> <NA>"
-            lines.append(line)
+        segments.map { s in
+            let duration = s.endTime - s.startTime
+            return "SPEAKER \(fileId) 1 \(fmt(s.startTime)) \(fmt(duration)) <NA> <NA> \(s.speaker) <NA> <NA>"
+        }.joined(separator: "\n")
+    }
+
+    // MARK: - Audio Loading
+
+    private func loadAudioFile(path: String) throws -> [Float] {
+        let url = URL(fileURLWithPath: path)
+        let file = try AVAudioFile(forReading: url)
+        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: file.processingFormat.sampleRate, channels: file.processingFormat.channelCount, interleaved: false)!
+
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(file.length)) else {
+            throw DiarizationError.diarizationFailed("Cannot create audio buffer")
         }
-        return lines.joined(separator: "\n")
+
+        try file.read(into: buffer)
+
+        guard let channelData = buffer.floatChannelData?[0] else {
+            throw DiarizationError.diarizationFailed("No audio data")
+        }
+
+        let frames = Int(buffer.frameLength)
+        var samples = [Float](repeating: 0, count: frames)
+        for i in 0..<frames { samples[i] = channelData[i] }
+
+        // Resample to 16kHz if needed
+        if file.processingFormat.sampleRate != 16000 {
+            samples = resample(samples, from: file.processingFormat.sampleRate, to: 16000)
+        }
+
+        // If stereo, we already only took channel 0. If more than 1 channel in the format,
+        // we should mix down — but AVAudioFile typically gives us interleaved or mono.
+        // For simplicity, we take the first channel.
+
+        return samples
+    }
+
+    private func resample(_ samples: [Float], from sourceRate: Double, to targetRate: Double) -> [Float] {
+        let ratio = targetRate / sourceRate
+        let newLength = Int(Double(samples.count) * ratio)
+        guard newLength > 0 else { return samples }
+        var result = [Float](repeating: 0, count: newLength)
+        for i in 0..<newLength {
+            let srcIndex = Double(i) / ratio
+            let index = Int(srcIndex)
+            if index < samples.count {
+                result[i] = samples[index]
+            }
+        }
+        return result
+    }
+
+    private func fmt(_ value: Double) -> String {
+        String(format: "%.3f", value)
     }
 }

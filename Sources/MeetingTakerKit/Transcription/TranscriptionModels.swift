@@ -1,7 +1,8 @@
 import Foundation
 
-/// Represents a single segment of transcribed speech
-public struct TranscriptionSegment: Identifiable, Codable, Sendable {
+/// Our own transcription segment type — independent from WhisperKit's internal types.
+/// We convert from WhisperKit's result to this for use in the UI.
+public struct MTTranscriptionSegment: Identifiable, Codable, Sendable, Hashable {
     public let id: UUID
     public let startTime: TimeInterval
     public let endTime: TimeInterval
@@ -28,24 +29,23 @@ public struct TranscriptionSegment: Identifiable, Codable, Sendable {
         self.confidence = confidence
     }
 
-    /// Formatted time range string (e.g. "00:01:23 - 00:01:45")
     public var timeRange: String {
-        "\(formatTime(startTime)) - \(formatTime(endTime))"
+        "\(fmt(startTime)) - \(fmt(endTime))"
     }
 
-    private func formatTime(_ time: TimeInterval) -> String {
-        let hours = Int(time) / 3600
-        let minutes = (Int(time) % 3600) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+    private func fmt(_ time: TimeInterval) -> String {
+        let h = Int(time) / 3600
+        let m = (Int(time) % 3600) / 60
+        let s = Int(time) % 60
+        return String(format: "%02d:%02d:%02d", h, m, s)
     }
 }
 
-/// A complete transcription result
-public struct TranscriptionResult: Identifiable, Codable, Sendable {
+/// Our own transcription result type.
+public struct MTTranscriptionResult: Identifiable, Codable, Sendable, Hashable {
     public let id: UUID
     public let date: Date
-    public let segments: [TranscriptionSegment]
+    public let segments: [MTTranscriptionSegment]
     public let fullText: String
     public let duration: TimeInterval
     public let language: String?
@@ -55,7 +55,7 @@ public struct TranscriptionResult: Identifiable, Codable, Sendable {
     public init(
         id: UUID = UUID(),
         date: Date = .now,
-        segments: [TranscriptionSegment],
+        segments: [MTTranscriptionSegment],
         fullText: String,
         duration: TimeInterval,
         language: String? = nil,
@@ -72,13 +72,26 @@ public struct TranscriptionResult: Identifiable, Codable, Sendable {
         self.fileName = fileName
     }
 
-    /// Unique speakers found in the transcription
     public var speakers: [String] {
         Array(Set(segments.compactMap { $0.speaker })).sorted()
     }
 
-    /// Number of unique speakers
-    public var speakerCount: Int {
-        speakers.count
+    public var speakerCount: Int { speakers.count }
+
+    public func hash(into hasher: inout Hasher) { hasher.combine(id) }
+    public static func == (lhs: MTTranscriptionResult, rhs: MTTranscriptionResult) -> Bool { lhs.id == rhs.id }
+}
+
+public struct DiarizationSegment: Codable, Sendable, Hashable {
+    public let startTime: TimeInterval
+    public let endTime: TimeInterval
+    public let speaker: String
+    public let confidence: Double?
+
+    public init(startTime: TimeInterval, endTime: TimeInterval, speaker: String, confidence: Double? = nil) {
+        self.startTime = startTime
+        self.endTime = endTime
+        self.speaker = speaker
+        self.confidence = confidence
     }
 }
